@@ -1,77 +1,86 @@
 import time
-import hashlib
 from collections import defaultdict
 
-def hash_pair_1(pair, num_buckets):
-    hash_value = hashlib.md5(str(pair).encode()).hexdigest()
-    return int(hash_value, 16) % num_buckets
+each_baskets = []
 
-def hash_pair_2(pair, num_buckets):
-    hash_value = hashlib.sha256(str(pair).encode()).hexdigest()
-    return int(hash_value, 16) % num_buckets
+text_path = ""
 
-def multihash_pcy(baskets, support_threshold, num_buckets):
+# define chunks and thresholds
+set_thresholds = [0.01, 0.05, 0.10]  # 1%, 5%, 10% thresholds
+set_sizes_of_dataset = [0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]  # 1%, 5%, 10% data
+
+
+with open(text_path, 'r') as text:
+    for line in text:
+        create_singlebasket = [int(item) for item in line.strip().split()]
+        each_baskets.append(create_singlebasket)
+
+
+# hash functions
+def hash_pair(pair, number_of_buckets, hash_function=1):
+    if hash_function == 1:
+        return sum(pair) % number_of_buckets
+    else:  # different hash function
+        return (pair[0] * pair[1]) % number_of_buckets
+
+
+# MultiHash PCY function
+def multihash_pcy(each_baskets, supp_threshold, number_of_buckets):
     # First Pass
-    singleton_counts = defaultdict(int)
-    bucket_counts_1 = defaultdict(int)
-    bucket_counts_2 = defaultdict(int)
+    single_itemcount = defaultdict(int)
+    count_of_buckets_1 = defaultdict(int)
+    count_of_buckets_2 = defaultdict(int)
     
-    for basket in baskets:
+    for basket in each_baskets:
         for item in basket:
-            singleton_counts[item] += 1
+            single_itemcount[item] += 1
         
         for i in range(len(basket)):
             for j in range(i+1, len(basket)):
-                pair = (basket[i], basket[j])
-                bucket_1 = hash_pair_1(pair, num_buckets)
-                bucket_counts_1[bucket_1] += 1
-                
-                bucket_2 = hash_pair_2(pair, num_buckets)
-                bucket_counts_2[bucket_2] += 1
+                pair = tuple(sorted((basket[i], basket[j])))
+                count_of_buckets_1[hash_pair(pair, number_of_buckets, hash_function=1)] += 1
+                count_of_buckets_2[hash_pair(pair, number_of_buckets, hash_function=2)] += 1
                 
     # Second Pass
-    frequent_pairs = set()
-    frequent_singletons = {k for k, v in singleton_counts.items() if v >= support_threshold}
+    pair_counts = defaultdict(int)
+    frequent_single_items = set()
+    for k, v in single_itemcount.items():
+        if v >= supp_threshold:
+            frequent_single_items.add(k)
     
-    for basket in baskets:
-        basket_set = set(basket) & frequent_singletons
-        for i, item1 in enumerate(basket_set):
-            for item2 in basket_set:
-                if item1 < item2:
-                    pair = (item1, item2)
-                    bucket_1 = hash_pair_1(pair, num_buckets)
-                    bucket_2 = hash_pair_2(pair, num_buckets)
+    for basket in each_baskets:
+        for i in range(len(basket)):
+            for j in range(i+1, len(basket)):
+                pair = tuple(sorted((basket[i], basket[j])))
+                if pair[0] in frequent_single_items and pair[1] in frequent_single_items:
+                    if count_of_buckets_1[hash_pair(pair, number_of_buckets, hash_function=1)] >= supp_threshold and \
+                       count_of_buckets_2[hash_pair(pair, number_of_buckets, hash_function=2)] >= supp_threshold:
+                        pair_counts[pair] += 1
                     
-                    if bucket_counts_1[bucket_1] >= support_threshold and bucket_counts_2[bucket_2] >= support_threshold:
-                        if all(item in frequent_singletons for item in pair):
-                            frequent_pairs.add(pair)
+    frequent_pair_items = set()
+    for k, v in pair_counts.items():
+        if v >= supp_threshold:
+            frequent_pair_items.add(k)
     
-    return frequent_pairs
+    return frequent_pair_items
 
-baskets = []
 
-data_file_path = ""
 
-with open(data_file_path, 'r') as file:
-    for line in file:
-        single_basket = [int(item) for item in line.strip().split()]
-        baskets.append(single_basket)
+# loop chunk and threshold
+for support_percentage in set_thresholds:
+    for chunk_size in set_sizes_of_dataset:
 
-chunk_sizes = [0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]  # 1%, 5%, 10% of the data
-thresholds = [1, 5, 10]  # 1%, 5%, 10% thresholds
+        supp_threshold = (len(each_baskets) * support_percentage)
+        
+        select_basket_chunk = each_baskets[:int(len(each_baskets) * chunk_size)]
+        
+        # start time
+        start_timer = time.time()
+        
+        number_of_buckets = 10037  # number of buckets
+        find_frequent_itemsets = multihash_pcy(select_basket_chunk, supp_threshold, number_of_buckets)
 
-for support_threshold_percentage in thresholds:
-    for chunk_size in chunk_sizes:
-        support_threshold = (len(baskets) * support_threshold_percentage) // 100
-        
-        baskets_chunk = baskets[:int(len(baskets) * chunk_size)]
-        
-        start_time = time.time()
-        
-        num_buckets = 10007
-        frequent_itemsets = multihash_pcy(baskets_chunk, support_threshold, num_buckets)
-        
-        execution_time = (time.time() - start_time) * 1000
-        print(f"\nExecution Time: {execution_time:.2f} ms with a chunk size of {chunk_size:.2f} and {support_threshold_percentage}% threshold")
-        
-        print(f"Frequent Itemsets: {frequent_itemsets}\n")
+        print(f"Frequent Itemsets: {find_frequent_itemsets}")
+
+        execution_time = (time.time() - start_timer) * 1000
+        print(f"Execution Time: {execution_time:.2f} ms --- Chunk size is {chunk_size:.2f} --- Support threshold is {support_percentage*100}%\n")
